@@ -23,6 +23,9 @@
 
 *{box-sizing:border-box}
 [hidden]{display:none!important}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{overflow-x:hidden}
+input,textarea,select{max-width:100%}
 body{background:var(--bg);color:var(--fg);font:16px/1.5 var(--f-body);padding-inline:16px;padding-block:20px 40px;margin:0}
 .wrap{max-width:1120px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
 button{font:inherit;cursor:pointer;color:inherit}
@@ -241,9 +244,9 @@ kbd{font-family:var(--f-label);font-weight:700;border:1px solid var(--line);bord
 .profile{padding:18px 20px;display:flex;flex-direction:column;gap:12px;border:2px solid var(--brass)}
 .profile h2{font-family:var(--f-display);font-weight:400;font-size:1.3rem}
 .pf-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:10px}
-@media (max-width:640px){.pf-row{grid-template-columns:1fr}}
-.pf-row label{display:flex;flex-direction:column;gap:4px;font-family:var(--f-label);font-weight:600;text-transform:uppercase;letter-spacing:.05em;font-size:.8rem;color:var(--muted)}
-.pf-row input{font-family:var(--f-body);text-transform:none;letter-spacing:0;font-size:1rem;color:var(--fg)}
+@media (max-width:640px){.pf-row{grid-template-columns:minmax(0,1fr)}.profile{padding:14px}.profile h2{font-size:1.15rem;line-height:1.2}.profile .lactions .btn{flex:1}}
+.pf-row label{min-width:0;display:flex;flex-direction:column;gap:4px;font-family:var(--f-label);font-weight:600;text-transform:uppercase;letter-spacing:.05em;font-size:.8rem;color:var(--muted)}
+.pf-row input{width:100%;min-width:0;font-family:var(--f-body);text-transform:none;letter-spacing:0;font-size:1rem;color:var(--fg)}
 .wpanel{padding:20px;display:flex;flex-direction:column;gap:14px}
 .wpanel h2{font-family:var(--f-display);font-weight:400;margin:0;font-size:1.5rem;letter-spacing:.02em}
 .lvlhead p{margin:0;color:var(--muted)}
@@ -588,8 +591,12 @@ kbd{font-family:var(--f-label);font-weight:700;border:1px solid var(--line);bord
         <label id="handsWrap" hidden><input type="checkbox" id="optHands" checked> Mãos livres (escuta e envia sozinho)</label>
         <div class="pfline"><span>Recruta: <b id="pfShow">sem nome</b></span> <button class="mini" id="pfEdit">Editar perfil</button></div>
         <div class="vsel" id="earWrap" hidden><label class="label" for="earSel">Quem escuta você</label><select id="earSel"><option value="ai">IA do Gemini (entende sotaque e corrige pronúncia)</option><option value="browser">Navegador (mais rápido, erra mais)</option></select></div>
+        <div class="vsel" id="vmodeWrap" hidden><label class="label" for="vmodeSel">Tipo de voz</label><select id="vmodeSel"><option value="cloud">Voz da IA (igual em todo aparelho)</option><option value="browser">Voz do navegador (instantânea)</option></select></div>
+        <div class="vsel" id="cloudVoiceWrap" hidden><label class="label" for="cloudVoice">Voz do Sargento</label><select id="cloudVoice"></select></div>
+        <div id="browserVoices">
         <div class="vsel"><label class="label" for="voiceEn">Voz em inglês</label><select id="voiceEn"></select></div>
         <div class="vsel"><label class="label" for="voicePt">Voz em português</label><select id="voicePt"></select></div>
+        </div>
         <button class="btn ghost" id="voiceTest" style="height:38px">Testar vozes</button>
         <p class="hint" id="voiceTip" hidden style="margin:0">Para uma voz bem mais natural e sem travar, abra o Sargento no <b>Microsoft Edge</b>: ele tem vozes neurais (marcadas com ★).</p>
       </div>
@@ -1497,6 +1504,7 @@ async function initBackend(){
     else if(location.protocol === "file:") showNotice('Dica: abra o Sargento pelo <b>Abrir Sargento.bat</b> para o navegador lembrar a permissão do microfone e não perguntar toda vez. <button class="mini" id="goKey">Como fazer</button>', true);
   }
   setupMic();
+  renderVoiceMode();
   $("syncWhere").textContent = hosted ? "Você está no claude.ai. Copie aqui e cole na versão com microfone, ou o contrário." : "Você está na versão com microfone. Copie aqui e cole no Sargento do claude.ai, ou o contrário.";
 }
 function showNotice(html, isHtml){ const n=$("noAI"); n.hidden=false; if(isHtml){ n.innerHTML=html; const g=$("goKey"); if(g) g.addEventListener("click",()=>go("howto")); const h=$("goHow"); if(h) h.addEventListener("click",e=>{e.preventDefault();go("howto");}); } else n.textContent=html; }
@@ -1746,16 +1754,16 @@ function fillVoiceSelects(){
     sel.innerHTML = list.length ? list.map(v => `<option value="${esc(v.name)}" ${cur&&cur.name===v.name?"selected":""}>${esc(v.name.replace(/^Microsoft\s+/,"").replace(/\s*-\s*.*$/,""))}${/natural|neural/i.test(v.name)?" ★":""}</option>`).join("") : `<option>Nenhuma voz encontrada</option>`;
   });
   const anyNatural = voices.some(v => /natural|neural/i.test(v.name));
-  $("voiceTip").hidden = anyNatural;
+  $("voiceTip").hidden = anyNatural || (!hosted && vmode()==="cloud");
 }
 function loadVoices(){ try{ voices = speechSynthesis.getVoices(); fillVoiceSelects(); }catch(e){} }
 if("speechSynthesis" in window){ loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; setTimeout(loadVoices, 800); }
 $("voiceEn").addEventListener("change", e => lsSet("sgt-voice-en", e.target.value));
 $("voicePt").addEventListener("change", e => lsSet("sgt-voice-pt", e.target.value));
-$("voiceTest").addEventListener("click", async () => { cancelSpeech(); await speak("Recruta! Isso é um teste de rádio.", "pt-BR", 2); await speak("Attention, recruit! This is a radio check.", "en-US"); });
+$("voiceTest").addEventListener("click", async () => { unlockAudio(); cancelSpeech(); await speakParts([{lang:"pt-BR", text:"Recruta! Isso é um teste de rádio."},{lang:"en-US", text:"Attention, recruit! This is a radio check."}], 2); });
 
 let speakToken = 0, keepAlive = null;
-function cancelSpeech(){ speakToken++; clearInterval(keepAlive); try{ speechSynthesis.cancel(); }catch(e){} }
+function cancelSpeech(){ speakToken++; clearInterval(keepAlive); try{ speechSynthesis.cancel(); }catch(e){} stopCloudAudio(); }
 function chunks(text){
   // frases curtas: evita o corte do Chrome em falas longas e deixa a voz mais fluida
   const parts = String(text).replace(/["“”]/g,"").replace(/\s+/g," ").match(/[^.!?;\n]+[.!?;]*|\n/g) || [];
@@ -1776,7 +1784,8 @@ function speakOne(text, lang, p, voice, token){
     speechSynthesis.speak(u);
   });
 }
-async function speak(text, lang, sev){
+function speak(text, lang, sev){ return speakParts([{lang, text}], sev); }
+async function speakBrowser(text, lang, sev){
   if(!$("optVoice").checked || !("speechSynthesis" in window) || !text) return;
   const token = speakToken;
   await new Promise(r => setTimeout(r, 80)); // o Chrome engasga se falar logo depois de cancelar
@@ -1830,20 +1839,150 @@ function splitSentence(t, fallback){
   return out;
 }
 function splitByLang(text, fallback){
-  const raw = String(text||"").replace(/\n+/g, ". ").split(/(?<=[.!?:])\s+|(?=["“])|(?<=["”])/);
+  const raw = String(text||"").replace(/\n+/g, ". ").replace(/([.!?:])\s+/g, "$1\u0001").replace(/(["“])/g, "\u0001$1").replace(/(["”])/g, "$1\u0001").split("\u0001");
   const parts = [];
   for(const seg of raw){ const t = seg.trim(); if(!t || /^["“”.,:;!?\s]+$/.test(t)) continue;
     for(const p of splitSentence(t, fallback)){ const last = parts[parts.length-1];
       if(last && last.lang === p.lang) last.text += " " + p.text; else parts.push(p); } }
   return parts;
 }
+function speechText(p){
+  let t = cleanForSpeech(p.text, p.lang);
+  if(p.lang.startsWith("en") && t && !/[a-z]/.test(t)) t = t.toLowerCase().replace(/\bi\b/g, "I"); // gritos em maiúsculas não viram soletração
+  return t;
+}
 async function speakParts(parts, sev){
+  if(!$("optVoice").checked || !parts || !parts.length) return;
+  if(cloudVoiceOn()){
+    const token = speakToken;
+    try{ await speakCloud(parts, sev, token); return; }
+    catch(e){ if(token !== speakToken) return; cloudFailed(e); }
+  }
+  for(const p of parts){ const t = speechText(p); if(t) await speakBrowser(t, p.lang, sev); }
+}
+
+/* ---------- voz da IA: a mesma voz em qualquer aparelho e navegador (Gemini TTS) ---------- */
+const TTS_MODELS = ["gemini-3.8-flash-tts","gemini-3.8-flash-lite-tts"];
+const CLOUD_VOICES = [["Fenrir","Fenrir (animado)"],["Charon","Charon (grave e sério)"],["Orus","Orus (firme)"],["Algenib","Algenib (rouco)"],["Puck","Puck (alegre)"],["Kore","Kore (feminina, firme)"]];
+const ttsCache = new Map(), ttsCool = {};
+let cloudOffUntil = 0, curSrc = null, cloudWarned = false;
+function vmode(){ return lsGet("sgt-vmode") || "cloud"; }
+function cloudVoiceOn(){ return !hosted && hasAI() && vmode()==="cloud" && Date.now() > cloudOffUntil; }
+function cloudVoiceName(){ const v = lsGet("sgt-cvoice"); return CLOUD_VOICES.some(x=>x[0]===v) ? v : "Fenrir"; }
+function actx(){ ringCtx = ringCtx || new (window.AudioContext || window.webkitAudioContext)(); return ringCtx; }
+function unlockAudio(){
+  // iPhone/Safari: o som só é liberado dentro de um toque/clique do usuário
+  try{
+    if(navigator.audioSession && !(micStream && micStream.active)) navigator.audioSession.type = "playback"; // toca mesmo com o iPhone no silencioso
+    const c = actx(); if(c.state !== "running") c.resume();
+    const b = c.createBuffer(1, 1, 22050), s = c.createBufferSource(); s.buffer = b; s.connect(c.destination); s.start(0);
+  }catch(e){}
+}
+["pointerdown","touchend","keydown","click"].forEach(ev => document.addEventListener(ev, () => { if(!ringCtx || ringCtx.state !== "running") unlockAudio(); }, {capture:true, passive:true}));
+function stopCloudAudio(){ if(curSrc){ try{ curSrc.onended = null; curSrc.stop(); }catch(e){} const f = curSrc._fin; curSrc = null; if(f) f(); } }
+function ttsStyle(sev){
+  const pace = P && P.stage === 1 ? " Speak at a calm, clear pace for a beginner student." : "";
+  const mood = sev===undefined ? "a firm but friendly army instructor on a radio call, clear and confident"
+    : ["a proud drill sergeant giving a gruff compliment, energetic","a mildly annoyed drill sergeant, firm and impatient","an angry, loud drill sergeant scolding, comedic and exaggerated","a furious drill sergeant shouting comically like in a cartoon, very intense"][sev] || "a drill sergeant";
+  return `### DIRECTOR'S NOTES\nVoice: ${mood}.${pace}\nLanguages: Portuguese parts in natural Brazilian Portuguese; English words and sentences in clear American English pronunciation, never with a Portuguese accent.\nRead ONLY the transcript, exactly as written.\n### TRANSCRIPT\n`;
+}
+function cloudChunks(parts){
+  const out = []; let cur = "";
   for(const p of parts){
-    let t = cleanForSpeech(p.text, p.lang);
-    if(p.lang.startsWith("en") && t && !/[a-z]/.test(t)) t = t.toLowerCase().replace(/\bi\b/g, "I"); // gritos em maiúsculas não viram soletração
-    if(t) await speak(t, p.lang, sev);
+    const t = speechText(p); if(!t) continue;
+    for(const c of (t.length > 380 ? chunks(t) : [t])){
+      if(cur && (cur + " " + c).length > 420){ out.push(cur); cur = c; } else cur = cur ? cur + " " + c : c;
+    }
+  }
+  if(cur) out.push(cur);
+  return out;
+}
+function b64ToBytes(b64){ const bin = atob(b64), u = new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u[i] = bin.charCodeAt(i); return u; }
+function pcmToWav(pcm, rate){
+  const h = new DataView(new ArrayBuffer(44)), w = (o,str) => { for(let i=0;i<str.length;i++) h.setUint8(o+i, str.charCodeAt(i)); };
+  w(0,"RIFF"); h.setUint32(4, 36+pcm.length, true); w(8,"WAVE"); w(12,"fmt "); h.setUint32(16,16,true); h.setUint16(20,1,true); h.setUint16(22,1,true);
+  h.setUint32(24,rate,true); h.setUint32(28,rate*2,true); h.setUint16(32,2,true); h.setUint16(34,16,true); w(36,"data"); h.setUint32(40,pcm.length,true);
+  const out = new Uint8Array(44+pcm.length); out.set(new Uint8Array(h.buffer),0); out.set(pcm,44); return out;
+}
+async function fetchTTSOnce(text, sev){
+  const key = ownKey(), viaServer = !key;
+  const base = viaServer ? serverURL() : "https://generativelanguage.googleapis.com/v1beta";
+  const headers = viaServer ? {"Content-Type":"application/json","X-Sargento-User":clientId()} : {"Content-Type":"application/json","x-goog-api-key":key};
+  const body = JSON.stringify({contents:[{role:"user",parts:[{text: ttsStyle(sev) + text}]}],
+    generationConfig:{responseModalities:["AUDIO"], speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:cloudVoiceName()}}}}});
+  let last = null;
+  for(const m of TTS_MODELS){
+    if((ttsCool[m]||0) > Date.now()) continue;
+    const ctrl = new AbortController(), to = setTimeout(() => ctrl.abort(), 25000);
+    let res;
+    try{ res = await fetch(`${base}/models/${m}:generateContent`, {method:"POST", headers, body, signal:ctrl.signal}); }
+    catch(e){ last = Object.assign(new Error("rede"), {code: e && e.name==="AbortError" ? "timeout" : "network"}); continue; }
+    finally{ clearTimeout(to); }
+    if(res.status===429 && /user|tts/.test(res.headers.get("X-Sargento-Quota")||"")) throw Object.assign(new Error("cota da voz"), {code:"tts_quota"});
+    if(res.status===429 || res.status>=500 || res.status===404){ ttsCool[m] = Date.now() + (res.status===404 ? 864e5 : 60000); last = Object.assign(new Error("HTTP "+res.status), {code:"busy"}); continue; }
+    if(!res.ok){ last = Object.assign(new Error("HTTP "+res.status), {code:"http"}); continue; }
+    const j = await res.json();
+    const d = (j.candidates?.[0]?.content?.parts || []).find(x => x.inlineData && x.inlineData.data);
+    if(!d){ last = Object.assign(new Error("sem áudio"), {code:"empty"}); continue; }
+    const mt = d.inlineData.mimeType || "";
+    let bytes = b64ToBytes(d.inlineData.data);
+    if(!/wav/i.test(mt) && !(bytes[0]===82 && bytes[1]===73)){ const r = mt.match(/rate=(\d+)/); bytes = pcmToWav(bytes, r ? +r[1] : 24000); }
+    return bytes.buffer;
+  }
+  throw last || Object.assign(new Error("voz indisponível"), {code:"busy"});
+}
+function fetchTTS(text, sev){
+  const k = cloudVoiceName() + "|" + (sev===undefined ? "n" : sev) + "|" + (P && P.stage) + "|" + text;
+  if(ttsCache.has(k)) return ttsCache.get(k);
+  const pr = fetchTTSOnce(text, sev);
+  ttsCache.set(k, pr);
+  pr.catch(() => ttsCache.delete(k));
+  if(ttsCache.size > 60) ttsCache.delete(ttsCache.keys().next().value);
+  return pr;
+}
+function prefetchParts(parts, sev){ if(cloudVoiceOn() && $("optVoice").checked){ const c = cloudChunks(parts); if(c[0]) fetchTTS(c[0], sev).catch(()=>{}); } }
+function decodeAudio(c, ab){ return new Promise((res, rej) => { const p = c.decodeAudioData(ab.slice(0), res, rej); if(p && p.then) p.then(res, rej); }); }
+async function playBuffer(ab, token){
+  const c = actx(); if(c.state !== "running"){ try{ await c.resume(); }catch(e){} }
+  const buf = await decodeAudio(c, ab);
+  if(token !== speakToken) return;
+  await new Promise(res => {
+    const s = c.createBufferSource(); s.buffer = buf; s.connect(c.destination);
+    let done = false; const fin = () => { if(!done){ done = true; if(curSrc === s) curSrc = null; res(); } };
+    s._fin = fin; s.onended = fin; curSrc = s; s.start(0);
+    setTimeout(fin, buf.duration*1000 + 1500); // se o navegador não avisar o fim
+  });
+}
+async function speakCloud(parts, sev, token){
+  const list = cloudChunks(parts); if(!list.length) return;
+  let next = fetchTTS(list[0], sev);
+  for(let i = 0; i < list.length; i++){
+    const cur = next;
+    let ab;
+    try{ ab = await cur; }
+    catch(e){ if(i === 0) throw e; // falhou no meio: o resto vai na voz do navegador
+      if(token === speakToken){ cloudFailed(e); for(const t of list.slice(i)) for(const p of splitByLang(t, "pt-BR")) await speakBrowser(p.text, p.lang, sev); } return; }
+    if(token !== speakToken) return;
+    if(i+1 < list.length) next = fetchTTS(list[i+1], sev);
+    await playBuffer(ab, token);
+    if(token !== speakToken) return;
   }
 }
+function cloudFailed(e){
+  cloudOffUntil = Date.now() + (e && e.code==="tts_quota" ? 6*3600e3 : 120000);
+  if(!cloudWarned){ cloudWarned = true;
+    showNotice(e && e.code==="tts_quota" ? "A voz da IA acabou por hoje. O Sargento vai usar a voz do navegador até amanhã." : "A voz da IA não respondeu agora. Usando a voz do navegador por alguns minutos."); }
+}
+function renderVoiceMode(){
+  const can = !hosted;
+  $("vmodeWrap").hidden = !can; $("vmodeSel").value = vmode();
+  const cloud = can && vmode()==="cloud";
+  $("cloudVoiceWrap").hidden = !cloud; $("browserVoices").hidden = cloud;
+  if(cloud) $("voiceTip").hidden = true; else fillVoiceSelects();
+  $("cloudVoice").innerHTML = CLOUD_VOICES.map(([v,l]) => `<option value="${v}" ${v===cloudVoiceName()?"selected":""}>${l}</option>`).join("");
+}
+$("vmodeSel").addEventListener("change", e => { lsSet("sgt-vmode", e.target.value); cloudOffUntil = 0; renderVoiceMode(); });
+$("cloudVoice").addEventListener("change", e => { lsSet("sgt-cvoice", e.target.value); });
 function voiceParts(r){
   // usa a versão "para falar" que a IA manda; se não vier, separa sozinho
   if(Array.isArray(r.fala_voz) && r.fala_voz.length)
@@ -1939,6 +2078,7 @@ async function listenAI(){
   if(recOn || busy || !inCall) return;
   cancelSpeech(); cancelAutoSend();
   try{
+    if(navigator.audioSession) navigator.audioSession.type = "auto";
     if(!micStream || !micStream.active) micStream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:1}});
   }catch(e){ micFail(); return; }
   micWorks = true;
@@ -1976,7 +2116,7 @@ async function listenAI(){
       const d = document.createElement("div"); d.className = "msg me audio"; d.textContent = "Áudio enviado. O Sargento está ouvindo...";
       $("log").appendChild(d); scrollLog(true);
       const b64 = await blobToB64(blob);
-      await turn("[áudio]", {mime: blob.type, b64}, d);
+      await turn("[áudio]", {mime: (blob.type||"audio/webm").split(";")[0], b64}, d);
     };
     countdown("Seu áudio vai ser enviado em", [
       ["Ouvir", () => { stopPreview(); preview = new Audio(URL.createObjectURL(blob)); preview.play().catch(()=>{}); return "keep"; }],
@@ -2054,6 +2194,7 @@ function autosize(){ const t=$("input"); t.style.height="auto"; t.style.height=M
 async function startCall(){
   if(!AI){ showNotice("A IA ainda está conectando. Tente de novo em alguns segundos."); return; }
   if(AI.local && !hasAI()){ go("howto"); $("keyStatus").textContent = "Cole sua chave para poder ligar."; return; }
+  unlockAudio();
   try{ speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance("")); }catch(e){}
   history = []; inCall = true;
   $("startScreen").hidden = true; $("log").hidden = false; $("composer").hidden = false; $("log").innerHTML = ""; stickBottom = true; $("newMsg").hidden = true;
@@ -2244,6 +2385,7 @@ async function turn(userText, audio, audioBubble){
   setTimeout(() => $("input").focus(), 50);
 
   cancelSpeech();
+  if(mode==="call" || mode==="lesson" || mode==="write") prefetchParts(vparts);
   const scoldLang = P.stage===1 ? "pt-BR" : "en-US";
   if(r.bronca){
     const bp = (Array.isArray(r.bronca_voz) && r.bronca_voz.length) ? r.bronca_voz.filter(x=>x&&x.texto).map(x => ({lang: /^pt/i.test(x.idioma||"") ? "pt-BR" : "en-US", text: x.texto})) : splitByLang(r.bronca, scoldLang);
@@ -2366,7 +2508,7 @@ if(LOCAL_SERVER){ const ping = () => fetch("/ping", {cache:"no-store"}).catch(()
 
 /* ---------- celular: avisa quando o app não tem voz ---------- */
 function checkMobileAudio(){
-  if(!IS_TOUCH) return;
+  if(!IS_TOUCH || cloudVoiceOn()) return;
   const noTTS = !("speechSynthesis" in window);
   const voicesNow = noTTS ? [] : (speechSynthesis.getVoices() || []);
   if(noTTS || !voicesNow.length){
@@ -2642,6 +2784,7 @@ function renderAll(){ ensureP(); try{ renderProfile(); }catch(e){} try{ rollDay(
 selLevel = (nextLesson()||LESSONS[0]).level;
 renderAll(); setMeter(0); setHint(micHintDefault());
 initBackend();
+window.__sgt = {vmode, cloudVoiceOn, fetchTTS, decodeAudio, actx, cloudChunks, splitByLang, speakParts, cancelSpeech}; // para testes
 })();
 </script>
 
