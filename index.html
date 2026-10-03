@@ -17,24 +17,25 @@
   var f = (def / 16) * zoom, target = Math.min(Math.max(f, 1), 1.15);
   if(Math.abs(f - 1) > 0.04) d.style.fontSize = (16 * target / zoom).toFixed(2) + "px";
 }catch(e){} })();
-/* Celular com "tamanho da tela"/zoom no máximo: a tela fica com menos de 340px úteis e tudo vira gigante.
-   Nesses casos o site se desenha como se a tela tivesse 360px e o navegador reduz para caber. */
+/* Celular com "zoom da tela" no máximo: o navegador entrega ao site menos de 340px e tudo vira gigante.
+   O site mede a largura real e, se estiver estreita, se desenha como em 360px e encolhe para caber. */
 (function(){ try{
-  var MIN = 340, BASE = 360;
+  var MIN = 340, BASE = 360, de = document.documentElement, tries = 0;
+  function vw(){ return Math.min(de.clientWidth || 9999, window.innerWidth || 9999); }
   function fit(){
-    var sw = Math.min(screen.width, screen.height), lw = Math.max(screen.width, screen.height);
-    var land = window.innerWidth > window.innerHeight;
-    var cssW = land ? lw : sw;
+    de.style.zoom = ""; var w = vw();
+    if(w >= MIN){ tries = 0; return; }
     var m = document.querySelector('meta[name="viewport"]');
-    if(sw >= MIN){ if(m && m.getAttribute("data-sgt")){ m.setAttribute("content", m.getAttribute("data-sgt")); m.removeAttribute("data-sgt"); } return; }
-    if(!m){ m = document.createElement("meta"); m.name = "viewport"; m.content = "width=device-width,initial-scale=1"; (document.head || document.documentElement).appendChild(m); }
-    if(!m.getAttribute("data-sgt")) m.setAttribute("data-sgt", m.getAttribute("content") || "width=device-width,initial-scale=1");
-    m.setAttribute("content", "width=" + Math.round(cssW * BASE / sw));
-    // se o navegador ignorar (página dentro de outra), encolhe com zoom
-    setTimeout(function(){ var w = document.documentElement.clientWidth || window.innerWidth;
-      document.documentElement.style.zoom = w < MIN ? (w / BASE).toFixed(3) : ""; }, 250);
+    if(!m){ m = document.createElement("meta"); m.name = "viewport"; (document.head || de).appendChild(m); }
+    if(tries++ < 2) m.setAttribute("content", "width=" + BASE + ",initial-scale=" + (w / BASE).toFixed(3));
+    setTimeout(function(){
+      var w2 = vw();
+      if(w2 < MIN){ de.style.zoom = (w2 / BASE).toFixed(3); }   // o navegador ignorou o viewport: encolhe com zoom
+    }, 350);
   }
-  fit(); window.addEventListener("orientationchange", function(){ setTimeout(fit, 300); });
+  function again(){ setTimeout(fit, 150); }
+  fit(); setTimeout(fit, 900);
+  window.addEventListener("orientationchange", again); window.addEventListener("resize", again);
 }catch(e){} })();
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1890,6 +1891,7 @@ function speechText(p){
 }
 async function speakParts(parts, sev){
   if(!$("optVoice").checked || !parts || !parts.length) return;
+  if(IS_TOUCH && micStream && !recOn){ try{ releaseMic(); }catch(e){} } // microfone aberto deixa o som baixo e abafado no Android
   if(cloudVoiceOn()){
     const token = speakToken;
     try{ await speakCloud(parts, sev, token); return; }
@@ -1902,7 +1904,7 @@ async function speakParts(parts, sev){
 const TTS_MODELS = ["gemini-3.8-flash-tts","gemini-3.8-flash-lite-tts"];
 const CLOUD_VOICES = [["Fenrir","Fenrir (animado)"],["Charon","Charon (grave e sério)"],["Orus","Orus (firme)"],["Algenib","Algenib (rouco)"],["Puck","Puck (alegre)"],["Kore","Kore (feminina, firme)"]];
 const ttsCache = new Map(), ttsCool = {};
-let cloudOffUntil = 0, curSrc = null, cloudWarned = false;
+let cloudOffUntil = 0, curFin = null, cloudWarned = false;
 function vmode(){ return lsGet("sgt-vmode") || "cloud"; }
 function cloudVoiceOn(){ return !hosted && hasAI() && vmode()==="cloud" && Date.now() > cloudOffUntil; }
 function cloudVoiceName(){ const v = lsGet("sgt-cvoice"); return CLOUD_VOICES.some(x=>x[0]===v) ? v : "Fenrir"; }
@@ -1914,9 +1916,14 @@ function unlockAudio(){
     const c = actx(); if(c.state !== "running") c.resume();
     const b = c.createBuffer(1, 1, 22050), s = c.createBufferSource(); s.buffer = b; s.connect(c.destination); s.start(0);
   }catch(e){}
+  try{ if(!voiceUnlocked){ const el = voiceEl();
+    if(!silentURL) silentURL = URL.createObjectURL(new Blob([pcmToWav(new Uint8Array(4800), 24000)], {type:"audio/wav"}));
+    if(el.paused && !el.src){ el.src = silentURL; const pr = el.play(); voiceUnlocked = true; if(pr && pr.catch) pr.catch(() => { voiceUnlocked = false; }); } } }catch(e){}
 }
+let voiceUnlocked = false, silentURL = null, voiceElm = null;
+function voiceEl(){ if(!voiceElm){ voiceElm = new Audio(); voiceElm.preload = "auto"; voiceElm.setAttribute("playsinline", ""); voiceElm.volume = 1; } return voiceElm; }
 ["pointerdown","touchend","keydown","click"].forEach(ev => document.addEventListener(ev, () => { if(!ringCtx || ringCtx.state !== "running") unlockAudio(); }, {capture:true, passive:true}));
-function stopCloudAudio(){ if(curSrc){ try{ curSrc.onended = null; curSrc.stop(); }catch(e){} const f = curSrc._fin; curSrc = null; if(f) f(); } }
+function stopCloudAudio(){ try{ vozLoading(false); }catch(e){} try{ if(voiceElm) voiceElm.pause(); }catch(e){} const f = curFin; curFin = null; if(f) f(); }
 function ttsStyle(sev){
   const pace = P && P.stage === 1 ? " Speak at a calm, clear pace for a beginner student." : "";
   const mood = sev===undefined ? "a firm but friendly army instructor on a radio call, clear and confident"
@@ -1979,25 +1986,55 @@ function fetchTTS(text, sev){
 }
 function prefetchParts(parts, sev){ if(cloudVoiceOn() && $("optVoice").checked){ const c = cloudChunks(parts); if(c[0]) fetchTTS(c[0], sev).catch(()=>{}); } }
 function decodeAudio(c, ab){ return new Promise((res, rej) => { const p = c.decodeAudioData(ab.slice(0), res, rej); if(p && p.then) p.then(res, rej); }); }
+// Normaliza o volume do WAV (16 bits) e devolve um Blob. Toca num <audio>, que no celular sai no volume de mídia, sem abafar.
+function loudWav(ab){
+  const u8 = new Uint8Array(ab.slice(0)), dv = new DataView(u8.buffer);
+  let pos = 12, dataAt = -1, dataLen = 0;
+  while(pos + 8 <= u8.length){
+    const id = String.fromCharCode(u8[pos],u8[pos+1],u8[pos+2],u8[pos+3]); let len = dv.getUint32(pos+4, true);
+    if(id === "data"){ dataAt = pos + 8; dataLen = Math.min(len, u8.length - dataAt); break; }
+    pos += 8 + len + (len & 1);
+  }
+  if(dataAt < 0) return new Blob([u8], {type:"audio/wav"});
+  const n = dataLen >> 1; let peak = 1;
+  for(let i = 0; i < n; i++){ const v = Math.abs(dv.getInt16(dataAt + i*2, true)); if(v > peak) peak = v; }
+  const gain = Math.min(4, Math.max(1, 0.92 * 32767 / peak));
+  if(gain > 1.05) for(let i = 0; i < n; i++) dv.setInt16(dataAt + i*2, Math.max(-32768, Math.min(32767, Math.round(dv.getInt16(dataAt + i*2, true) * gain))), true);
+  return new Blob([u8], {type:"audio/wav"});
+}
 async function playBuffer(ab, token){
-  const c = actx(); if(c.state !== "running"){ try{ await c.resume(); }catch(e){} }
-  const buf = await decodeAudio(c, ab);
   if(token !== speakToken) return;
-  await new Promise(res => {
-    const s = c.createBufferSource(); s.buffer = buf; s.connect(c.destination);
-    let done = false; const fin = () => { if(!done){ done = true; if(curSrc === s) curSrc = null; res(); } };
-    s._fin = fin; s.onended = fin; curSrc = s; s.start(0);
-    setTimeout(fin, buf.duration*1000 + 1500); // se o navegador não avisar o fim
-  });
+  const el = voiceEl(), url = URL.createObjectURL(loudWav(ab));
+  try{
+    await new Promise((res, rej) => {
+      let done = false;
+      const fin = (err) => { if(done) return; done = true; clearTimeout(t); el.onended = el.onerror = null; if(curFin === fin0) curFin = null; err ? rej(err) : res(); };
+      const fin0 = () => fin();
+      curFin = fin0;
+      el.onended = () => fin(); el.onerror = () => fin(Object.assign(new Error("áudio"), {code:"play"}));
+      const t = setTimeout(() => fin(), Math.max(4000, ab.byteLength / 48000 * 1000 + 3000)); // se o navegador não avisar o fim
+      el.src = url; el.currentTime = 0; el.volume = 1;
+      const pr = el.play(); if(pr && pr.catch) pr.catch(e => fin(Object.assign(e, {code:"play"})));
+    });
+  } finally { setTimeout(() => URL.revokeObjectURL(url), 2000); }
+}
+let vozHint = null, vozTimer = null;
+function vozLoading(on){
+  clearTimeout(vozTimer);
+  if(!vozHint){ vozHint = document.createElement("div"); vozHint.setAttribute("role","status");
+    vozHint.style.cssText = "position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#13180e;color:#e8ecd9;border:1px solid #a3bb62;border-radius:999px;padding:8px 16px;font-size:.85rem;z-index:50;box-shadow:0 4px 16px #0006";
+    vozHint.textContent = "Sargento pegando o rádio…"; document.body.appendChild(vozHint); }
+  if(on) vozTimer = setTimeout(() => { vozHint.hidden = false; }, 350); else vozHint.hidden = true;
 }
 async function speakCloud(parts, sev, token){
   const list = cloudChunks(parts); if(!list.length) return;
   let next = fetchTTS(list[0], sev);
+  vozLoading(true);
   for(let i = 0; i < list.length; i++){
     const cur = next;
     let ab;
-    try{ ab = await cur; }
-    catch(e){ if(i === 0) throw e; // falhou no meio: o resto vai na voz do navegador
+    try{ ab = await cur; vozLoading(false); }
+    catch(e){ vozLoading(false); if(i === 0) throw e; // falhou no meio: o resto vai na voz do navegador
       if(token === speakToken){ cloudFailed(e); for(const t of list.slice(i)) for(const p of splitByLang(t, "pt-BR")) await speakBrowser(p.text, p.lang, sev); } return; }
     if(token !== speakToken) return;
     if(i+1 < list.length) next = fetchTTS(list[i+1], sev);
