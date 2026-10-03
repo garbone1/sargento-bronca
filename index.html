@@ -1,6 +1,23 @@
 <!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>
 <title>Sargento Bronca</title>
+<script>
+/* Celular com "letra grande" (Samsung Internet, Android, iPhone): o navegador aumenta todo o texto e quebra o layout.
+   Mede o aumento e compensa, deixando no máximo 15% maior que o normal. */
+(function(){ try{
+  var d = document.documentElement, host = document.body || d;
+  var p = document.createElement("div");
+  p.style.cssText = "position:absolute;left:-9999px;top:0;visibility:hidden;line-height:1;white-space:nowrap;font-family:monospace";
+  p.innerHTML = '<span style="font-size:medium;display:inline-block">M</span><span style="font-size:100px;display:inline-block;line-height:1">M</span>';
+  host.appendChild(p);
+  var a = p.children[0], b = p.children[1];
+  var def = parseFloat(getComputedStyle(a).fontSize) || 16;   // tamanho padrão escolhido no aparelho
+  var zoom = (b.getBoundingClientRect().height / 100) || 1;     // zoom de texto do navegador
+  host.removeChild(p);
+  var f = (def / 16) * zoom, target = Math.min(Math.max(f, 1), 1.15);
+  if(Math.abs(f - 1) > 0.04) d.style.fontSize = (16 * target / zoom).toFixed(2) + "px";
+}catch(e){} })();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&display=swap">
 <style>
@@ -23,10 +40,10 @@
 
 *{box-sizing:border-box}
 [hidden]{display:none!important}
-html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;font-size:16px}
 body{overflow-x:hidden}
 input,textarea,select{max-width:100%}
-body{background:var(--bg);color:var(--fg);font:16px/1.5 var(--f-body);padding-inline:16px;padding-block:20px 40px;margin:0}
+body{background:var(--bg);color:var(--fg);font:1rem/1.5 var(--f-body);padding-inline:16px;padding-block:20px 40px;margin:0}
 .wrap{max-width:1120px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
 button{font:inherit;cursor:pointer;color:inherit}
 button:focus-visible,textarea:focus-visible,input:focus-visible,.chip:focus-visible{outline:3px solid var(--brass);outline-offset:2px}
@@ -46,15 +63,16 @@ header.top{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
   .wrap{gap:12px}
   header.top{gap:10px}
   .badge{width:40px;height:40px}
-  .brand h1{font-size:1.45rem}
+  .brand h1{font-size:clamp(1.15rem,6.2vw,1.45rem);white-space:nowrap}
   .brand p{display:none}
-  .tabs{margin-left:0;width:100%;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;position:sticky;top:env(safe-area-inset-top,0px);z-index:5}
-  .tabs::-webkit-scrollbar{display:none}
-  .tabs button{padding:8px 12px;font-size:.85rem;flex:none}
+  .tabs{margin-left:0;width:100%;display:flex;flex-wrap:wrap;gap:2px;border-radius:16px;position:sticky;top:env(safe-area-inset-top,0px);z-index:5}
+  .tabs button{flex:1 1 auto;padding:8px 8px;font-size:.78rem;letter-spacing:.03em;border-radius:12px;white-space:nowrap}
   .trail,.lesson,.howto,.notebook,.start{padding:16px}
   .item{grid-template-columns:30px minmax(0,1fr);padding:10px}
   .item .pips{grid-column:2;justify-self:start}
-  .lvl{min-width:0;flex:1 1 30%}
+  .levels.levels{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,130px),1fr))}
+  .lvl.lvl{min-width:0;padding:6px 8px}
+  .lvl.lvl span{font-size:.66rem;letter-spacing:.02em;overflow-wrap:break-word;max-width:100%;text-align:left}
   .msg{max-width:94%}
   .log{height:calc(100dvh - 250px);min-height:240px;padding:12px}
   .callbar{padding:10px 12px}
@@ -244,7 +262,7 @@ kbd{font-family:var(--f-label);font-weight:700;border:1px solid var(--line);bord
 .profile{padding:18px 20px;display:flex;flex-direction:column;gap:12px;border:2px solid var(--brass)}
 .profile h2{font-family:var(--f-display);font-weight:400;font-size:1.3rem}
 .pf-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:10px}
-@media (max-width:640px){.pf-row{grid-template-columns:minmax(0,1fr)}.profile{padding:14px}.profile h2{font-size:1.15rem;line-height:1.2}.profile .lactions .btn{flex:1}}
+@media (max-width:640px){.pf-row{grid-template-columns:minmax(0,1fr)}.profile{padding:14px}.profile h2{font-size:1.15rem;line-height:1.2}.profile .lactions .btn{flex:1;padding-inline:8px;letter-spacing:.03em;white-space:nowrap}}
 .pf-row label{min-width:0;display:flex;flex-direction:column;gap:4px;font-family:var(--f-label);font-weight:600;text-transform:uppercase;letter-spacing:.05em;font-size:.8rem;color:var(--muted)}
 .pf-row input{width:100%;min-width:0;font-family:var(--f-body);text-transform:none;letter-spacing:0;font-size:1rem;color:var(--fg)}
 .wpanel{padding:20px;display:flex;flex-direction:column;gap:14px}
