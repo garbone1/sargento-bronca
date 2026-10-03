@@ -523,8 +523,10 @@ kbd{font-family:var(--f-label);font-weight:700;border:1px solid var(--line);bord
         </div>
 
         <div class="opt setup" id="setupBox" hidden>
-          <h3>Chave da IA (versão local)</h3>
-          <p style="margin:0">Cole aqui sua chave do Google AI Studio. Ela fica salva só neste navegador.</p>
+          <h3>IA do Sargento</h3>
+          <p style="margin:0" id="srvInfo"></p>
+          <p class="hint" style="margin:0">Privacidade: para corrigir você, o que você escreve e a sua voz são enviados à IA do Google (Gemini). Não envie dados pessoais sensíveis nas respostas.</p>
+          <p style="margin:0"><b>Chave própria (opcional):</b> cole sua chave grátis do Google AI Studio para usar sem limite diário. Ela fica salva só neste navegador.</p>
           <div class="row">
             <input type="password" id="keyInput" placeholder="Cole a chave (começa com AIza...)" autocomplete="off">
             <button class="btn go" id="keySave" style="height:44px">Salvar</button>
@@ -534,6 +536,11 @@ kbd{font-family:var(--f-label);font-weight:700;border:1px solid var(--line);bord
             <input type="text" id="modelInput" placeholder="gemini-flash-latest">
           </div>
           <p class="hint" id="keyStatus" style="margin:0"></p>
+          <div style="border-top:1px solid var(--line);padding-top:10px;margin-top:4px;display:flex;flex-direction:column;gap:6px">
+            <b>Testar o microfone</b>
+            <div class="lactions"><button class="btn ghost" id="micTest" style="height:40px">Testar microfone</button><span class="lvlbar" style="width:140px;height:12px"><b id="micTestLvl"></b></span></div>
+            <p class="hint" id="micTestMsg" style="margin:0">Clique e fale alguma coisa. Se a barra se mexer, o microfone está funcionando.</p>
+          </div>
         </div>
       </section>
     </main>
@@ -1379,6 +1386,12 @@ function parseJSON(t){
   const a = t.indexOf("{"), b = t.lastIndexOf("}");
   return JSON.parse(a>=0 && b>a ? t.slice(a,b+1) : t);
 }
+const SERVER_URL_DEFAULT = "https://sargento-api.henriquegarbone.workers.dev"; // endereço do intermediário (Cloudflare Worker)
+function serverURL(){ const v = (lsGet("sgt-server")||"").trim() || SERVER_URL_DEFAULT; return /^https:\/\//.test(v) ? v.replace(/\/+$/,"") : ""; }
+function clientId(){ let id = lsGet("sgt-cid"); if(!id){ id = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2)+Date.now()); lsSet("sgt-cid", id); } return id; }
+function ownKey(){ return (lsGet("sgt-key")||"").trim(); }
+function hasAI(){ return !!(ownKey() || serverURL()); }
+let quotaLeft = null;
 function geminiBackend(){
   // Vários modelos gratuitos: cada um tem a sua própria cota no plano grátis do Google.
   // Quando um bate no limite, o Sargento passa para o próximo e volta ao primeiro depois.
@@ -1393,9 +1406,12 @@ function geminiBackend(){
     const gen = {responseMimeType:"application/json",temperature:0.9};
     if(withThink) gen.thinkingConfig = {thinkingLevel:"low"};
     const ctrl = new AbortController(); const to = setTimeout(()=>ctrl.abort(), 45000);
+    const viaServer = !key;
+    const base = viaServer ? serverURL() : "https://generativelanguage.googleapis.com/v1beta";
+    const headers = viaServer ? {"Content-Type":"application/json","X-Sargento-User":clientId()} : {"Content-Type":"application/json","x-goog-api-key":key};
     try{
-      return await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`, {
-        method:"POST", signal:ctrl.signal, headers:{"Content-Type":"application/json","x-goog-api-key":key},
+      return await fetch(`${base}/models/${encodeURIComponent(m)}:generateContent`, {
+        method:"POST", signal:ctrl.signal, headers,
         body: JSON.stringify({contents:[{role:"user",parts: audio ? [{text:prompt},{inlineData:{mimeType:audio.mime,data:audio.b64}}] : [{text:prompt}]}], generationConfig:gen})
       });
     }catch(e){ return e && e.name==="AbortError" ? "timeout" : null; }
@@ -1412,8 +1428,8 @@ function geminiBackend(){
     return { daily: /PerDay|per day|daily/i.test(txt), delay: Math.min(Math.max(delay, 5), 90) };
   }
   const api = { local:true, audio:true, onWait:null, async json(prompt, audio){
-    const key = (lsGet("sgt-key")||"").trim();
-    if(!key){ const e = new Error("Sem chave"); e.code = "no_key"; throw e; }
+    const key = ownKey();
+    if(!key && !serverURL()){ const e = new Error("Sem chave"); e.code = "no_key"; throw e; }
     for(let round = 0; round < 4; round++){
       let lastErr = null, soonest = Infinity, tried = 0;
       for(const m of models()){
@@ -1428,6 +1444,7 @@ function geminiBackend(){
         if(res==="timeout"){ lastErr = Object.assign(new Error("demorou"),{code:"timeout"}); continue; }
         if(!res){ throw Object.assign(new Error("rede"),{code:"network"}); }
         if(res.status===404){ missing[m] = true; persist(); continue; }
+        if(res.status===429 && res.headers.get("X-Sargento-Quota")==="user"){ quotaLeft = 0; throw Object.assign(new Error("cota"),{code:"user_quota"}); }
         if(res.status===429){
           const lim = await readLimit(res);
           cool[m] = lim.daily ? nextDailyReset() : Date.now() + lim.delay*1000; persist();
@@ -1436,6 +1453,7 @@ function geminiBackend(){
         if(res.status===500||res.status===503){ cool[m] = Date.now()+20000; soonest = Math.min(soonest, cool[m]); continue; }
         if(res.status===400||res.status===401||res.status===403){ const j = await res.json().catch(()=>({})); throw Object.assign(new Error(j.error?.message||"chave"),{code:"bad_key"}); }
         if(!res.ok){ lastErr = Object.assign(new Error("HTTP "+res.status),{code:"http"}); continue; }
+        const lf = res.headers.get("X-Sargento-Left"); if(lf !== null){ quotaLeft = +lf; try{ updateQuotaInfo(); }catch(e){} }
         const j = await res.json();
         const text = (j.candidates?.[0]?.content?.parts||[]).filter(p=>!p.thought).map(p=>p.text||"").join("");
         return parseJSON(text);
@@ -1475,17 +1493,25 @@ async function initBackend(){
     AI = geminiBackend();
     $("setupBox").hidden = false; $("optLocal").hidden = true;
     $("modelInput").value = lsGet("sgt-model")||"";
-    if(!lsGet("sgt-key")) showNotice('Versão local: falta a chave grátis da IA. <button class="mini" id="goKey">Configurar agora</button>', true);
+    if(!hasAI()) showNotice('Falta a chave grátis da IA (Gemini) para o Sargento funcionar aqui. <button class="mini" id="goKey">Configurar agora</button>', true);
     else if(location.protocol === "file:") showNotice('Dica: abra o Sargento pelo <b>Abrir Sargento.bat</b> para o navegador lembrar a permissão do microfone e não perguntar toda vez. <button class="mini" id="goKey">Como fazer</button>', true);
   }
   setupMic();
   $("syncWhere").textContent = hosted ? "Você está no claude.ai. Copie aqui e cole na versão com microfone, ou o contrário." : "Você está na versão com microfone. Copie aqui e cole no Sargento do claude.ai, ou o contrário.";
 }
 function showNotice(html, isHtml){ const n=$("noAI"); n.hidden=false; if(isHtml){ n.innerHTML=html; const g=$("goKey"); if(g) g.addEventListener("click",()=>go("howto")); const h=$("goHow"); if(h) h.addEventListener("click",e=>{e.preventDefault();go("howto");}); } else n.textContent=html; }
+function updateQuotaInfo(){
+  const el = $("srvInfo"); if(!el) return;
+  if(ownKey()) el.innerHTML = '<span class="ok">Usando a sua própria chave</span>: sem limite diário do Sargento.';
+  else if(serverURL()) el.innerHTML = '<span class="ok">Você não precisa de chave:</span> o Sargento já vem com IA, com uma cota grátis por dia.' + (quotaLeft !== null ? ` Restam <b>${quotaLeft}</b> respostas hoje.` : "");
+  else el.textContent = "Para o Sargento funcionar aqui, cole uma chave grátis do Google AI Studio abaixo.";
+}
+setTimeout(updateQuotaInfo, 500);
 $("keySave").addEventListener("click", () => {
   lsSet("sgt-key", $("keyInput").value.trim()); lsSet("sgt-model", $("modelInput").value.trim());
   $("keyInput").value = ""; $("keyStatus").textContent = lsGet("sgt-key") ? "Chave salva. Pode ligar para o Sargento." : "Cole uma chave antes de salvar.";
-  if(lsGet("sgt-key")) $("noAI").hidden = true;
+  if(hasAI()) $("noAI").hidden = true;
+  updateQuotaInfo();
 });
 
 /* ---------- side panel ---------- */
@@ -2027,7 +2053,7 @@ function autosize(){ const t=$("input"); t.style.height="auto"; t.style.height=M
 
 async function startCall(){
   if(!AI){ showNotice("A IA ainda está conectando. Tente de novo em alguns segundos."); return; }
-  if(AI.local && !lsGet("sgt-key")){ go("howto"); $("keyStatus").textContent = "Cole sua chave para poder ligar."; return; }
+  if(AI.local && !hasAI()){ go("howto"); $("keyStatus").textContent = "Cole sua chave para poder ligar."; return; }
   try{ speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance("")); }catch(e){}
   history = []; inCall = true;
   $("startScreen").hidden = true; $("log").hidden = false; $("composer").hidden = false; $("log").innerHTML = ""; stickBottom = true; $("newMsg").hidden = true;
@@ -2182,6 +2208,7 @@ async function turn(userText, audio, audioBubble){
                 c==="not_granted" ? "Sem permissão para chamar o Claude. Recarregue e permita o acesso." :
                 c==="bad_key" ? "A chave da IA foi recusada. Confira a chave na aba Microfone." :
                 c==="no_key" ? "Falta a chave da IA. Configure na aba Microfone." :
+                c==="user_quota" ? "Sua cota grátis de hoje acabou. Volte amanhã, ou cole sua própria chave grátis do Gemini na aba Microfone para continuar sem limite." :
                 c==="daily_quota" ? "A cota grátis de hoje do Google acabou em todos os modelos. Ela volta amanhã cedo (por volta das 5h). Enquanto isso, use o Sargento do claude.ai, que usa o Claude." :
                 c==="timeout" ? "A IA demorou demais para responder. Tente de novo." :
                 c==="model" ? "O modelo da IA não foi encontrado. Na aba Microfone, troque o modelo (ex.: gemini-2.5-flash)." :
@@ -2379,7 +2406,8 @@ function norm(t){
 }
 function aiErr(e){
   const c = e && e.code;
-  return c==="rate_limited" ? "Muitas chamadas seguidas. Espere um pouco e tente de novo." :
+  return c==="user_quota" ? "Sua cota grátis de hoje acabou. Volte amanhã ou cole sua própria chave na aba Microfone." :
+         c==="rate_limited" ? "Muitas chamadas seguidas. Espere um pouco e tente de novo." :
          c==="daily_quota" ? "A cota grátis do Google acabou por hoje. Use o Sargento do claude.ai ou tente amanhã." :
          c==="no_key" ? "Falta a chave da IA. Configure na aba Microfone." :
          c==="bad_key" ? "A chave da IA foi recusada. Confira na aba Microfone." :
@@ -2595,6 +2623,20 @@ $("pfSave").addEventListener("click", () => {
   showToast(P.name ? `Sentido, recruta ${P.name}!` : "Perfil salvo.");
 });
 $("pfSkip").addEventListener("click", () => { P.pfSkip = true; save(); $("profileBox").hidden = true; });
+
+$("micTest").addEventListener("click", async () => {
+  const msg = $("micTestMsg");
+  try{
+    const st = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
+    const ctx = new (window.AudioContext||window.webkitAudioContext)(); const src = ctx.createMediaStreamSource(st), an = ctx.createAnalyser(); an.fftSize = 1024; src.connect(an);
+    const buf = new Float32Array(an.fftSize); let peak = 0; msg.textContent = "Ouvindo por 5 segundos... fale algo.";
+    const iv = setInterval(() => { an.getFloatTimeDomainData(buf); let x=0; for(const v of buf) x+=v*v; const r=Math.sqrt(x/buf.length); peak=Math.max(peak,r); $("micTestLvl").style.width = Math.min(100, r*600)+"%"; }, 50);
+    setTimeout(() => { clearInterval(iv); st.getTracks().forEach(t=>t.stop()); ctx.close(); $("micTestLvl").style.width="0";
+      msg.innerHTML = peak > 0.02 ? '<span class="ok">Microfone funcionando!</span> O navegador já guardou a permissão para este site.' : '<span class="bad">O microfone abriu, mas não captou som.</span> Confira se o microfone certo está selecionado em Configurações do Windows → Sistema → Som → Entrada.'; }, 5000);
+  }catch(e){
+    msg.innerHTML = '<span class="bad">O navegador bloqueou o microfone neste site.</span> Clique no <b>cadeado</b> ao lado do endereço → <b>Permissões do site</b> (ou "Permissões para este site") → <b>Microfone: Permitir</b>, e recarregue a página (F5).';
+  }
+});
 
 function renderAll(){ ensureP(); try{ renderProfile(); }catch(e){} try{ rollDay(); prevDone = doneCount(); renderStreak(); }catch(e){} renderSide(); renderTrail(); if(view==="notebook") renderNotebook(); const nx = nextLesson(); if(nx && view==="trail") selLevel = selLevel || nx.level; }
 selLevel = (nextLesson()||LESSONS[0]).level;
