@@ -17,6 +17,25 @@
   var f = (def / 16) * zoom, target = Math.min(Math.max(f, 1), 1.15);
   if(Math.abs(f - 1) > 0.04) d.style.fontSize = (16 * target / zoom).toFixed(2) + "px";
 }catch(e){} })();
+/* Celular com "tamanho da tela"/zoom no máximo: a tela fica com menos de 340px úteis e tudo vira gigante.
+   Nesses casos o site se desenha como se a tela tivesse 360px e o navegador reduz para caber. */
+(function(){ try{
+  var MIN = 340, BASE = 360;
+  function fit(){
+    var sw = Math.min(screen.width, screen.height), lw = Math.max(screen.width, screen.height);
+    var land = window.innerWidth > window.innerHeight;
+    var cssW = land ? lw : sw;
+    var m = document.querySelector('meta[name="viewport"]');
+    if(sw >= MIN){ if(m && m.getAttribute("data-sgt")){ m.setAttribute("content", m.getAttribute("data-sgt")); m.removeAttribute("data-sgt"); } return; }
+    if(!m){ m = document.createElement("meta"); m.name = "viewport"; m.content = "width=device-width,initial-scale=1"; (document.head || document.documentElement).appendChild(m); }
+    if(!m.getAttribute("data-sgt")) m.setAttribute("data-sgt", m.getAttribute("content") || "width=device-width,initial-scale=1");
+    m.setAttribute("content", "width=" + Math.round(cssW * BASE / sw));
+    // se o navegador ignorar (página dentro de outra), encolhe com zoom
+    setTimeout(function(){ var w = document.documentElement.clientWidth || window.innerWidth;
+      document.documentElement.style.zoom = w < MIN ? (w / BASE).toFixed(3) : ""; }, 250);
+  }
+  fit(); window.addEventListener("orientationchange", function(){ setTimeout(fit, 300); });
+}catch(e){} })();
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&display=swap">
